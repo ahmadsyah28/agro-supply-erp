@@ -358,11 +358,11 @@ Contoh skenario penerimaan:
 
 
 ### Phase 2 — Master Data
-- [ ] Migration `products`.
-- [ ] CRUD products.
-- [ ] Migration `suppliers`.
-- [ ] CRUD suppliers.
-- [ ] Validasi dan API tests.
+- [x] Migration `products`.
+- [x] CRUD products.
+- [x] Migration `suppliers`.
+- [x] CRUD suppliers.
+- [x] Validasi dan API tests.
 
 ### Phase 3 — Procurement
 - [ ] PR dan PR items.
