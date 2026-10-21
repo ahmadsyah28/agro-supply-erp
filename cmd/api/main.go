@@ -16,6 +16,7 @@ import (
 	"agro-supply-erp/internal/middleware"
 	"agro-supply-erp/internal/product"
 	"agro-supply-erp/internal/supplier"
+	"agro-supply-erp/internal/procurement"
 	"agro-supply-erp/migrations"
 )
 
@@ -79,6 +80,12 @@ func main() {
 		supplierService := supplier.NewService(supplierRepo)
 		supplierHandler := supplier.NewHandler(supplierService)
 		supplierHandler.RegisterRoutes(mux)
+
+		// Procurement Module (PR & PO)
+		procurementRepo := procurement.NewRepository(db)
+		procurementService := procurement.NewService(procurementRepo, productRepo, supplierRepo)
+		procurementHandler := procurement.NewHandler(procurementService)
+		procurementHandler.RegisterRoutes(mux)
 	}
 
 	// Middleware chain: CORS -> Logger -> Mux

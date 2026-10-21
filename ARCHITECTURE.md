@@ -365,10 +365,10 @@ Contoh skenario penerimaan:
 - [x] Validasi dan API tests.
 
 ### Phase 3 — Procurement
-- [ ] PR dan PR items.
-- [ ] Workflow submit/approve sederhana.
-- [ ] PO dan PO items.
-- [ ] Validasi status dan supplier aktif.
+- [x] PR dan PR items.
+- [x] Workflow submit/approve sederhana.
+- [x] PO dan PO items.
+- [x] Validasi status dan supplier aktif.
 
 ### Phase 4 — Inventory
 - [ ] Goods Receipt dan item.
