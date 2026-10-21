@@ -14,6 +14,7 @@ import (
 	"agro-supply-erp/internal/database"
 	"agro-supply-erp/internal/health"
 	"agro-supply-erp/internal/middleware"
+	"agro-supply-erp/internal/product"
 	"agro-supply-erp/migrations"
 )
 
@@ -63,6 +64,14 @@ func main() {
 	healthHandler := health.NewHandler(db)
 	mux.HandleFunc("/health/live", healthHandler.Live)
 	mux.HandleFunc("/health/ready", healthHandler.Ready)
+
+	// Register Business Modules
+	if db != nil {
+		productRepo := product.NewRepository(db)
+		productService := product.NewService(productRepo)
+		productHandler := product.NewHandler(productService)
+		productHandler.RegisterRoutes(mux)
+	}
 
 	// Middleware chain: CORS -> Logger -> Mux
 	handler := middleware.CORS(middleware.Logger(mux))
