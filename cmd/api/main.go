@@ -13,6 +13,7 @@ import (
 	"agro-supply-erp/internal/config"
 	"agro-supply-erp/internal/database"
 	"agro-supply-erp/internal/health"
+	"agro-supply-erp/internal/inventory"
 	"agro-supply-erp/internal/middleware"
 	"agro-supply-erp/internal/product"
 	"agro-supply-erp/internal/supplier"
@@ -86,6 +87,12 @@ func main() {
 		procurementService := procurement.NewService(procurementRepo, productRepo, supplierRepo)
 		procurementHandler := procurement.NewHandler(procurementService)
 		procurementHandler.RegisterRoutes(mux)
+
+		// Inventory Module (Goods Receipt & Stock Ledger)
+		inventoryRepo := inventory.NewRepository(db)
+		inventoryService := inventory.NewService(inventoryRepo, procurementRepo)
+		inventoryHandler := inventory.NewHandler(inventoryService)
+		inventoryHandler.RegisterRoutes(mux)
 	}
 
 	// Middleware chain: CORS -> Logger -> Mux

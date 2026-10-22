@@ -371,11 +371,11 @@ Contoh skenario penerimaan:
 - [x] Validasi status dan supplier aktif.
 
 ### Phase 4 — Inventory
-- [ ] Goods Receipt dan item.
-- [ ] Penerimaan parsial.
-- [ ] Inventory ledger.
-- [ ] Transaksi database yang atomik.
-- [ ] Pengujian penerimaan dan stok.
+- [x] Goods Receipt dan item.
+- [x] Penerimaan parsial.
+- [x] Inventory ledger.
+- [x] Transaksi database yang atomik.
+- [x] Pengujian penerimaan dan stok.
 
 ### Phase 5 — Stabilization
 - [ ] Error response konsisten.
