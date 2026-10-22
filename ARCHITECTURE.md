@@ -378,11 +378,11 @@ Contoh skenario penerimaan:
 - [x] Pengujian penerimaan dan stok.
 
 ### Phase 5 — Stabilization
-- [ ] Error response konsisten.
-- [ ] Pagination dan filtering dasar.
-- [ ] Logging tanpa secret.
-- [ ] Testing workflow end-to-end.
-- [ ] README untuk menjalankan project.
+- [x] Error response konsisten.
+- [x] Pagination dan filtering dasar.
+- [x] Logging tanpa secret.
+- [x] Testing workflow end-to-end.
+- [x] README untuk menjalankan project.
 
 ### Phase 6 — Frontend
 - [ ] Setup Next.js + TypeScript.

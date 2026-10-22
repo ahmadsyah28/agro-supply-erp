@@ -95,8 +95,8 @@ func main() {
 		inventoryHandler.RegisterRoutes(mux)
 	}
 
-	// Middleware chain: CORS -> Logger -> Mux
-	handler := middleware.CORS(middleware.Logger(mux))
+	// Middleware chain: Recovery -> CORS -> Logger -> Mux
+	handler := middleware.Recovery(middleware.CORS(middleware.Logger(mux)))
 
 	// 5. Server Configuration
 	server := &http.Server{
