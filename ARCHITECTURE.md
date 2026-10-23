@@ -385,11 +385,11 @@ Contoh skenario penerimaan:
 - [x] README untuk menjalankan project.
 
 ### Phase 6 — Frontend
-- [ ] Setup Next.js + TypeScript.
-- [ ] Halaman master products dan suppliers.
-- [ ] Halaman PR dan PO.
-- [ ] Halaman penerimaan barang dan stok.
-- [ ] Integrasi frontend dengan API Go.
+- [x] Setup Next.js + TypeScript.
+- [x] Halaman master products dan suppliers.
+- [x] Halaman PR dan PO.
+- [x] Halaman penerimaan barang dan stok.
+- [x] Integrasi frontend dengan API Go.
 
 ## 15. Definition of Done
 

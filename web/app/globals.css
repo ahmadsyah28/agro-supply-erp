@@ -1,0 +1,268 @@
+/* REKKI Design System - Style Reference from DESIGN.md */
+:root {
+  /* Colors */
+  --color-signal-blue: #0063e1;
+  --color-obsidian: #000000;
+  --color-carbon: #040910;
+  --color-graphite: #0d0d0d;
+  --color-iron: #1f1f1f;
+  --color-steel: #2b2c2e;
+  --color-ash: #858585;
+  --color-smoke: #979797;
+  --color-fog: #8c8c8c;
+  --color-paper: #ffffff;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', monospace;
+
+  /* Type Scale & Letter Spacing */
+  --text-caption: 12px;
+  --tracking-caption: -0.005em;
+  --text-body: 15px;
+  --tracking-body: -0.007em;
+  --text-subheading: 18px;
+  --tracking-subheading: -0.015em;
+  --text-heading-sm: 20px;
+  --tracking-heading-sm: -0.027em;
+  --text-heading: 26px;
+  --tracking-heading: -0.035em;
+  --text-display: 48px;
+  --tracking-display: -0.055em;
+
+  /* Spacing */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+
+  /* Border Radius */
+  --radius-inputs: 8px;
+  --radius-cards: 16px;
+  --radius-largecards: 24px;
+  --radius-buttons: 59px;
+  --radius-full: 9999px;
+
+  /* Inset Shadows / Borders (No Drop Shadows as per DESIGN.md) */
+  --shadow-subtle: rgba(255, 255, 255, 0.12) 0px 0px 0px 1px inset;
+  --shadow-subtle-hover: rgba(255, 255, 255, 0.22) 0px 0px 0px 1px inset;
+  --shadow-input-glow: rgba(255, 255, 255, 0.2) 0px 0px 1px 0px;
+  --shadow-blue-focus: 0 0 0 2px rgba(0, 99, 225, 0.4);
+
+  /* Layout */
+  --page-max-width: 1320px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background-color: var(--color-obsidian);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  letter-spacing: var(--tracking-body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-obsidian);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-steel);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ash);
+}
+
+/* Common UI Elements */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: var(--text-body);
+  background-color: var(--color-iron);
+  color: var(--color-paper);
+  border: none;
+  border-radius: var(--radius-inputs);
+  box-shadow: var(--shadow-subtle);
+  padding: 10px 14px;
+  outline: none;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  box-shadow: 0 0 0 1px var(--color-signal-blue);
+  background-color: #242527;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--color-ash);
+}
+
+/* REKKI Button System */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--color-signal-blue);
+  color: var(--color-paper);
+  font-weight: 500;
+  border-radius: var(--radius-buttons);
+  padding: 10px 22px;
+  font-size: 14px;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.btn-primary:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--color-graphite);
+  color: var(--color-paper);
+  border-radius: var(--radius-buttons);
+  box-shadow: var(--shadow-subtle);
+  padding: 10px 20px;
+  font-size: 14px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-steel);
+  box-shadow: var(--shadow-subtle-hover);
+}
+
+/* Card Surface Stack */
+.card-panel {
+  background-color: var(--color-carbon);
+  box-shadow: var(--shadow-subtle);
+  border-radius: var(--radius-cards);
+  padding: var(--spacing-24);
+}
+
+.card-elevated {
+  background-color: var(--color-graphite);
+  box-shadow: var(--shadow-subtle);
+  border-radius: var(--radius-cards);
+  padding: var(--spacing-20);
+}
+
+/* Status Pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: var(--radius-buttons);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  box-shadow: var(--shadow-subtle);
+  background-color: var(--color-graphite);
+  color: var(--color-ash);
+}
+
+.status-pill.active,
+.status-pill.approved,
+.status-pill.completed {
+  color: #4ade80;
+  background-color: rgba(34, 197, 94, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.25);
+}
+
+.status-pill.submitted,
+.status-pill.partially_received {
+  color: #60a5fa;
+  background-color: rgba(0, 99, 225, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(0, 99, 225, 0.35);
+}
+
+.status-pill.draft {
+  color: var(--color-smoke);
+  background-color: var(--color-iron);
+}
+
+.status-pill.cancelled,
+.status-pill.rejected,
+.status-pill.inactive {
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.25);
+}
+
+/* Tabular Data Grid */
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 14px;
+}
+
+.data-table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-ash);
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: var(--color-carbon);
+}
+
+.data-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--color-paper);
+}
+
+.data-table tr:hover td {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.mono-cell {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}

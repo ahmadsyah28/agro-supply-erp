@@ -18,3 +18,9 @@ bin/
 # Temporary files and logs
 tmp/
 *.log
+
+# Frontend (Node / Next.js)
+node_modules/
+.next/
+out/
+.env*.local

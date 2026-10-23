@@ -71,7 +71,7 @@ func (r *pgRepository) Create(ctx context.Context, s *Supplier) error {
 // GetByID mengambil data supplier berdasarkan ID
 func (r *pgRepository) GetByID(ctx context.Context, id int64) (*Supplier, error) {
 	query := `
-		SELECT id, name, contact_name, email, phone, address, is_active, created_at, updated_at
+		SELECT id, name, COALESCE(contact_name, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), is_active, COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP)
 		FROM suppliers
 		WHERE id = $1
 	`
@@ -102,7 +102,7 @@ func (r *pgRepository) GetByID(ctx context.Context, id int64) (*Supplier, error)
 // List mengambil seluruh daftar supplier
 func (r *pgRepository) List(ctx context.Context) ([]*Supplier, error) {
 	query := `
-		SELECT id, name, contact_name, email, phone, address, is_active, created_at, updated_at
+		SELECT id, name, COALESCE(contact_name, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), is_active, COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP)
 		FROM suppliers
 		ORDER BY id DESC
 	`
@@ -142,7 +142,7 @@ func (r *pgRepository) List(ctx context.Context) ([]*Supplier, error) {
 // ListActive mengambil hanya supplier yang aktif (untuk kebutuhan PO/Procurement)
 func (r *pgRepository) ListActive(ctx context.Context) ([]*Supplier, error) {
 	query := `
-		SELECT id, name, contact_name, email, phone, address, is_active, created_at, updated_at
+		SELECT id, name, COALESCE(contact_name, ''), COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), is_active, COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP)
 		FROM suppliers
 		WHERE is_active = TRUE
 		ORDER BY name ASC
