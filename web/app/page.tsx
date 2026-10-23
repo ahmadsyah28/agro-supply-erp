@@ -52,6 +52,7 @@ export default function MissionControlERP() {
   const [showPRModal, setShowPRModal] = useState(false);
   const [showPOModal, setShowPOModal] = useState(false);
   const [showGRModal, setShowGRModal] = useState(false);
+  const [loadingPOItems, setLoadingPOItems] = useState(false);
 
   // Form states
   const [productForm, setProductForm] = useState({ sku: '', name: '', unit: 'kg' });
@@ -193,27 +194,59 @@ export default function MissionControlERP() {
     }
   };
 
-  const handleSelectPOForGR = (poId: number) => {
-    const selectedPO = pos.find(p => p.id === poId);
-    if (!selectedPO || !selectedPO.items) return;
-    setGRForm({
-      purchase_order_id: poId,
-      delivery_order_number: '',
-      notes: '',
-      items: selectedPO.items.map(item => ({
-        purchase_order_item_id: item.id,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        received_quantity: item.quantity,
-        accepted_quantity: item.quantity,
-        rejected_quantity: 0,
-        rejection_reason: '',
-      })),
-    });
+  const handleSelectPOForGR = async (poId: number) => {
+    if (!poId || poId <= 0) {
+      setGRForm(prev => ({
+        ...prev,
+        purchase_order_id: 0,
+        items: [],
+      }));
+      return;
+    }
+
+    setLoadingPOItems(true);
+    try {
+      const poDetail = await api.getPO(poId);
+      if (!poDetail || !poDetail.items || poDetail.items.length === 0) {
+        notify('PO ini tidak memiliki daftar item barang yang valid', 'error');
+        setGRForm(prev => ({
+          ...prev,
+          purchase_order_id: poId,
+          items: [],
+        }));
+        return;
+      }
+
+      setGRForm(prev => ({
+        ...prev,
+        purchase_order_id: poId,
+        items: poDetail.items!.map(item => ({
+          purchase_order_item_id: item.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          received_quantity: item.quantity,
+          accepted_quantity: item.quantity,
+          rejected_quantity: 0,
+          rejection_reason: '',
+        })),
+      }));
+    } catch (err: any) {
+      notify(`Gagal memuat item PO: ${err.message}`, 'error');
+    } finally {
+      setLoadingPOItems(false);
+    }
   };
 
   const handleCreateGR = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!grForm.purchase_order_id || grForm.purchase_order_id <= 0) {
+      notify('Silakan pilih Purchase Order yang valid terlebih dahulu', 'error');
+      return;
+    }
+    if (!grForm.items || grForm.items.length === 0) {
+      notify('Daftar item barang dari PO belum dimuat atau kosong. Silakan pilih ulang PO.', 'error');
+      return;
+    }
     try {
       await api.createGoodsReceipt(grForm);
       notify('Goods Receipt berhasil dicatat & stok ledger diperbarui');
@@ -836,10 +869,17 @@ export default function MissionControlERP() {
               </div>
               <button
                 onClick={() => {
-                  if (pos.some(p => p.status === 'APPROVED' || p.status === 'PARTIALLY_RECEIVED')) {
-                    const firstValidPO = pos.find(p => p.status === 'APPROVED' || p.status === 'PARTIALLY_RECEIVED');
-                    if (firstValidPO) handleSelectPOForGR(firstValidPO.id);
+                  const validPOs = pos.filter(p => p.status === 'APPROVED' || p.status === 'PARTIALLY_RECEIVED');
+                  if (validPOs.length > 0) {
+                    const firstValidPO = validPOs[0];
+                    setGRForm({
+                      purchase_order_id: firstValidPO.id,
+                      delivery_order_number: '',
+                      notes: '',
+                      items: [],
+                    });
                     setShowGRModal(true);
+                    handleSelectPOForGR(firstValidPO.id);
                   } else {
                     notify('Tidak ada PO berstatus APPROVED atau PARTIALLY_RECEIVED untuk diterima', 'error');
                   }
@@ -1173,18 +1213,31 @@ export default function MissionControlERP() {
                 <label style={{ display: 'block', fontSize: 13, color: 'var(--color-ash)', marginBottom: 6 }}>RUJUKAN PR TERSETUJUI (OPSIONAL)</label>
                 <select
                   value={poForm.purchase_request_id}
-                  onChange={e => {
+                  onChange={async (e) => {
                     const prId = Number(e.target.value);
-                    const selectedPR = prs.find(p => p.id === prId);
-                    setPOForm({
-                      ...poForm,
+                    if (prId > 0) {
+                      try {
+                        const prDetail = await api.getPR(prId);
+                        if (prDetail && prDetail.items && prDetail.items.length > 0) {
+                          setPOForm(prev => ({
+                            ...prev,
+                            purchase_request_id: prId,
+                            items: prDetail.items!.map(it => ({
+                              product_id: it.product_id,
+                              quantity: it.quantity,
+                              unit_price: 2500,
+                            })),
+                          }));
+                          return;
+                        }
+                      } catch (err: any) {
+                        notify(`Gagal memuat item PR: ${err.message}`, 'error');
+                      }
+                    }
+                    setPOForm(prev => ({
+                      ...prev,
                       purchase_request_id: prId,
-                      items: selectedPR?.items?.map(it => ({
-                        product_id: it.product_id,
-                        quantity: it.quantity,
-                        unit_price: 2500,
-                      })) || poForm.items,
-                    });
+                    }));
                   }}
                   style={{ width: '100%' }}
                 >
@@ -1309,11 +1362,22 @@ export default function MissionControlERP() {
               {/* Items QC Inspection Table */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: 'block', fontSize: 13, color: 'var(--color-ash)', marginBottom: 8 }}>HASIL INSPEKSI MUTU & TIMBANGAN (QC)</label>
-                {grForm.items.map((item, idx) => (
-                  <div key={idx} style={{ backgroundColor: 'var(--color-carbon)', padding: 14, borderRadius: 8, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: 'var(--color-paper)' }}>
-                      {item.product_name || `Produk ID #${item.product_id}`}
-                    </div>
+                {loadingPOItems ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-ash)', backgroundColor: 'var(--color-carbon)', borderRadius: 8, fontSize: 13 }}>
+                    Sedang memuat daftar barang dari PO...
+                  </div>
+                ) : grForm.items.length === 0 ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-ash)', backgroundColor: 'var(--color-carbon)', borderRadius: 8, fontSize: 13 }}>
+                    {grForm.purchase_order_id <= 0 
+                      ? 'Silakan pilih Purchase Order di atas untuk memuat daftar barang.' 
+                      : 'Purchase Order ini tidak memiliki item barang yang dapat diterima.'}
+                  </div>
+                ) : (
+                  grForm.items.map((item, idx) => (
+                    <div key={idx} style={{ backgroundColor: 'var(--color-carbon)', padding: 14, borderRadius: 8, marginBottom: 12 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: 'var(--color-paper)' }}>
+                        {item.product_name || `Produk ID #${item.product_id}`}
+                      </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
                       <div>
                         <span style={{ fontSize: 11, color: 'var(--color-ash)' }}>TOTAL TIBA (KG)</span>
@@ -1381,8 +1445,9 @@ export default function MissionControlERP() {
                       />
                     )}
                   </div>
-                ))}
-              </div>
+                ))
+              )}
+            </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
                 <button type="button" onClick={() => setShowGRModal(false)} className="btn-secondary">
