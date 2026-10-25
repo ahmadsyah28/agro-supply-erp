@@ -3,9 +3,13 @@ package tests
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"agro-supply-erp/internal/auth"
 	"agro-supply-erp/internal/inventory"
+	"agro-supply-erp/internal/middleware"
 	"agro-supply-erp/internal/procurement"
 	"agro-supply-erp/internal/product"
 	"agro-supply-erp/internal/supplier"
@@ -341,3 +345,98 @@ func TestEndToEndProcurementToInventoryWorkflow(t *testing.T) {
 		t.Errorf("expected 2 transaksi ledger, got: %d", len(txs))
 	}
 }
+
+func TestEndToEndRoleBasedAccessControl(t *testing.T) {
+	// Setup user claims representing different departments
+	purchasingClaims := &auth.JWTClaims{
+		UserID:   10,
+		Username: "purchasing_officer",
+		Role:     auth.RolePurchasing,
+	}
+
+	managerClaims := &auth.JWTClaims{
+		UserID:   20,
+		Username: "procurement_manager",
+		Role:     auth.RoleManager,
+	}
+
+	warehouseClaims := &auth.JWTClaims{
+		UserID:   30,
+		Username: "warehouse_officer",
+		Role:     auth.RoleWarehouse,
+	}
+
+	adminClaims := &auth.JWTClaims{
+		UserID:   1,
+		Username: "admin",
+		Role:     auth.RoleAdmin,
+	}
+
+	// Handlers with protection
+	approveHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"status":"approved"}`)
+	})
+
+	grHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"status":"goods_receipt_created"}`)
+	})
+
+	requireManager := middleware.RequireRole(auth.RoleManager)
+	requireWarehouse := middleware.RequireRole(auth.RoleWarehouse)
+
+	// 1. Purchasing mencoba menyetujui (approve) PR -> HARUS DITOLAK 403 Forbidden
+	req := httptest.NewRequest("POST", "/api/v1/purchase-requests/1/approve", nil)
+	req = req.WithContext(auth.SetClaimsToContext(req.Context(), purchasingClaims))
+	rr := httptest.NewRecorder()
+	requireManager(approveHandler).ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Segregation of Duties Violation: Purchasing seharusnya tidak boleh approve PR! Status code: %d", rr.Code)
+	}
+
+	// 2. Manager menyetujui (approve) PR -> HARUS BERHASIL 200 OK
+	req = httptest.NewRequest("POST", "/api/v1/purchase-requests/1/approve", nil)
+	req = req.WithContext(auth.SetClaimsToContext(req.Context(), managerClaims))
+	rr = httptest.NewRecorder()
+	requireManager(approveHandler).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Manager seharusnya diizinkan approve PR! Status code: %d", rr.Code)
+	}
+
+	// 3. Purchasing mencoba membuat Goods Receipt -> HARUS DITOLAK 403 Forbidden
+	req = httptest.NewRequest("POST", "/api/v1/goods-receipts", nil)
+	req = req.WithContext(auth.SetClaimsToContext(req.Context(), purchasingClaims))
+	rr = httptest.NewRecorder()
+	requireWarehouse(grHandler).ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Purchasing tidak boleh membuat Goods Receipt! Status code: %d", rr.Code)
+	}
+
+	// 4. Warehouse mencatat Goods Receipt fisik & QC -> HARUS BERHASIL 200 OK
+	req = httptest.NewRequest("POST", "/api/v1/goods-receipts", nil)
+	req = req.WithContext(auth.SetClaimsToContext(req.Context(), warehouseClaims))
+	rr = httptest.NewRecorder()
+	requireWarehouse(grHandler).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Warehouse seharusnya diizinkan membuat Goods Receipt! Status code: %d", rr.Code)
+	}
+
+	// 5. Admin memiliki akses penuh (Bypass) ke semua aksi
+	req = httptest.NewRequest("POST", "/api/v1/purchase-requests/1/approve", nil)
+	req = req.WithContext(auth.SetClaimsToContext(req.Context(), adminClaims))
+	rr = httptest.NewRecorder()
+	requireManager(approveHandler).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Admin seharusnya diizinkan bypass approve PR! Status code: %d", rr.Code)
+	}
+
+	req = httptest.NewRequest("POST", "/api/v1/goods-receipts", nil)
+	req = req.WithContext(auth.SetClaimsToContext(req.Context(), adminClaims))
+	rr = httptest.NewRecorder()
+	requireWarehouse(grHandler).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Admin seharusnya diizinkan bypass Goods Receipt! Status code: %d", rr.Code)
+	}
+}
+

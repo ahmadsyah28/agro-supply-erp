@@ -11,6 +11,7 @@ type Config struct {
 	AppEnv      string
 	HTTPAddr    string
 	DatabaseURL string
+	JWTSecret   string
 }
 
 func Load() (*Config, error) {
@@ -29,10 +30,16 @@ func Load() (*Config, error) {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "agro-supply-erp-secret-key-change-in-production-2026"
+	}
+
 	cfg := &Config{
 		AppEnv:      appEnv,
 		HTTPAddr:    httpAddr,
 		DatabaseURL: databaseURL,
+		JWTSecret:   jwtSecret,
 	}
 
 	return cfg, nil

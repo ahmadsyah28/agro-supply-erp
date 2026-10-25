@@ -121,20 +121,91 @@ export interface InventoryTransaction {
   created_at: string;
 }
 
+export type UserRole = 'ADMIN' | 'PURCHASING' | 'MANAGER' | 'WAREHOUSE';
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
 const API_BASE = '/api/v1';
+const TOKEN_KEY = 'agro_erp_token';
+const USER_KEY = 'agro_erp_user';
+
+export const authStorage = {
+  getToken: (): string | null => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(TOKEN_KEY);
+  },
+  setToken: (token: string | null) => {
+    if (typeof window === 'undefined') return;
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  },
+  getUser: (): User | null => {
+    if (typeof window === 'undefined') return null;
+    const str = localStorage.getItem(USER_KEY);
+    if (!str) return null;
+    try {
+      return JSON.parse(str) as User;
+    } catch {
+      return null;
+    }
+  },
+  setUser: (user: User | null) => {
+    if (typeof window === 'undefined') return;
+    if (user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(USER_KEY);
+    }
+  },
+  clear: () => {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  },
+};
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
+  const token = authStorage.getToken();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
 
   const json = await response.json();
   if (!response.ok || json.status === 'error') {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      // Sesi habis atau token expired
+      authStorage.clear();
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
     const errorMsg = json.error?.message || `Request failed with status ${response.status}`;
     throw new Error(errorMsg);
   }
@@ -142,7 +213,6 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   return json.data as T;
 }
 
-// Products API
 export const api = {
   // Health
   checkHealth: async () => {
@@ -153,6 +223,19 @@ export const api = {
       return false;
     }
   },
+
+  // Auth & RBAC (Phase 7)
+  login: (data: { username: string; password: string }) =>
+    request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  getMe: () => request<User>('/auth/me'),
+  getUsers: () => request<User[]>('/users'),
+  registerUser: (data: { username: string; email: string; password: string; full_name: string; role: UserRole }) =>
+    request<User>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  updateUserStatus: (id: number, is_active: boolean) =>
+    request<{ id: number; is_active: boolean }>(`/users/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active }),
+    }),
 
   // Products
   getProducts: () => request<Product[]>('/products'),

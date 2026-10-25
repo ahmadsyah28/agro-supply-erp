@@ -2,10 +2,10 @@
 
 > Dokumen arsitektur teknis untuk MVP ERP PT AgroSupply.
 >
-> Status: **MVP Phase 1–6 Selesai & Operasional**  
+> Status: **MVP Phase 1–7 Selesai & Operasional (Auth & RBAC Active)**  
 > Backend: Go (Modular Monolith) + Neon PostgreSQL (`pgxpool`)  
 > Frontend: Next.js 14 (App Router) + TypeScript + Custom Design System ([DESIGN.md](DESIGN.md))  
-> Pengujian: End-to-End Workflow Test (`tests/`) & Bruno API Collection (`bruno/`)
+> Pengujian: End-to-End Workflow & RBAC Test (`tests/`) & Bruno API Collection (`bruno/`)
 
 ## 1. Tujuan Sistem
 
@@ -295,6 +295,7 @@ Skema dikelola oleh sistem migrasi bawaan (`migrations/*.up.sql`):
 3. `000003_create_procurement_tables.up.sql`: Pembuatan tabel `purchase_requests`, `purchase_request_items`, `purchase_orders`, dan `purchase_order_items`.
 4. `000004_create_inventory_tables.up.sql`: Pembuatan tabel `goods_receipts`, `goods_receipt_items`, dan `inventory_transactions`.
 5. `000005_ensure_suppliers_columns.up.sql`: Verifikasi idempotent kolom dan constraint integritas data supplier.
+6. `000006_create_users_table.up.sql`: Pembuatan tabel `users` dengan index unik, hashing bcrypt, dan seed default akun demo 4 peran.
 
 ## 9. Inventory Ledger (Buku Besar Stok)
 
@@ -317,10 +318,19 @@ Sistem mengadopsi prinsip akuntansi buku besar (ledger):
 Prefix API: `/api/v1`
 
 ### 10.1 Health Checks
-| Method | Endpoint | Deskripsi |
-|---|---|---|
-| `GET` | `/health/live` | Liveness probe (memverifikasi server Go aktif) |
-| `GET` | `/health/ready` | Readiness probe (memverifikasi kesiapan koneksi database Neon) |
+| Method | Endpoint | Hak Akses | Deskripsi |
+|---|---|---|---|
+| `GET` | `/health/live` | Publik | Liveness probe (memverifikasi server Go aktif) |
+| `GET` | `/health/ready` | Publik | Readiness probe (memverifikasi kesiapan koneksi database Neon) |
+
+### 10.2 Autentikasi & Manajemen Pengguna (Auth & RBAC)
+| Method | Endpoint | Hak Akses | Deskripsi |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/login` | Publik | Login username & password, mengembalikan JWT Bearer Token |
+| `GET` | `/api/v1/auth/me` | Terotentikasi (Semua) | Mengambil profil user aktif dari claims JWT |
+| `POST` | `/api/v1/auth/register` | `ADMIN` | Mendaftarkan akun karyawan baru dengan role spesifik |
+| `GET` | `/api/v1/users` | `ADMIN` | Menampilkan seluruh daftar pengguna terdaftar |
+| `PUT` | `/api/v1/users/{id}/status` | `ADMIN` | Mengubah status aktif/nonaktif akun pengguna |
 
 ### 10.2 Products
 | Method | Endpoint | Deskripsi |
@@ -472,19 +482,29 @@ Kode status HTTP yang digunakan:
 - [x] Antarmuka Inventory: Input Goods Receipt, pencatatan QC, dan visualisasi Stock Ledger.
 - [x] Client API wrapper terintegrasi dengan backend Go (`web/lib/api.ts`).
 
+### Phase 7 — Autentikasi & Role-Based Access Control (RBAC) (Selesai)
+- [x] Migrasi tabel `users` dengan constraint role & index unik (`migrations/000006_create_users_table.up.sql`).
+- [x] Password hashing aman menggunakan `bcrypt` (`golang.org/x/crypto/bcrypt`).
+- [x] Autentikasi berbasis JWT Token (`github.com/golang-jwt/jwt/v5`) dengan klaim peran dan masa kedaluwarsa.
+- [x] Middleware pipeline: `Authenticate` (Bearer token) dan `RequireRole` (RBAC authorization) dengan admin bypass.
+- [x] Pemisahan peran akses ketat (*Segregation of Duties*):
+  - `ADMIN`: Akses penuh konfigurasi sistem, data master, alur transaksi, dan manajemen akun pengguna.
+  - `PURCHASING`: Membuat PR, membuat PO, dan mengelola data rekanan pemasok.
+  - `MANAGER`: Menyetujui atau menolak dokumen PR dan PO (anggaran & kontrak).
+  - `WAREHOUSE`: Mencatat fisik penerimaan barang (Goods Receipt), inspeksi mutu (QC), dan melihat buku besar stok.
+- [x] Integrasi antarmuka Next.js:
+  - Layar login Glassmorphism dengan 1-klik Quick Demo Role Switcher.
+  - Session storage otomatis (`Bearer <token>`) pada setiap request API.
+  - Badge profil peran di navbar dan tombol Logout.
+  - Proteksi aksi kondisional di seluruh tab dan antarmuka User Management untuk Admin.
+- [x] Pengujian otomatis: Unit test service & middleware (`service_test.go`, `auth_test.go`) serta E2E RBAC workflow test (`tests/e2e_workflow_test.go`).
+- [x] Koleksi request API testing Bruno untuk Autentikasi (`bruno/00-Auth`).
+
 ---
 
 ## 15. Rencana Pengembangan Selanjutnya (Next Phases)
 
-Setelah MVP operasional hulu-ke-hilir selesai, pengembangan lanjutan akan difokuskan pada:
-
-### Phase 7 — Autentikasi & Role-Based Access Control (RBAC)
-- [ ] Registrasi & Login pengguna (JWT / HttpOnly Cookie).
-- [ ] Pemisahan peran akses:
-  - `Admin`: Akses penuh konfigurasi sistem dan user.
-  - `Purchasing`: Membuat PR, membuat PO, mengelola master supplier.
-  - `Manager / Approver`: Menyetujui atau menolak PR dan PO.
-  - `Warehouse / QC`: Mencatat Goods Receipt, inspeksi mutu barang, dan melihat stok.
+Setelah implementasi Autentikasi & RBAC operasional, pengembangan lanjutan akan difokuskan pada:
 
 ### Phase 8 — Outbound Logistics & Multi-Warehouse
 - [ ] Master data multi-gudang (`warehouses`) dan alokasi lokasi penyimpanan.

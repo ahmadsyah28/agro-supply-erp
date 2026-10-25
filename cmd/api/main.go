@@ -10,14 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"agro-supply-erp/internal/auth"
 	"agro-supply-erp/internal/config"
 	"agro-supply-erp/internal/database"
 	"agro-supply-erp/internal/health"
 	"agro-supply-erp/internal/inventory"
 	"agro-supply-erp/internal/middleware"
+	"agro-supply-erp/internal/procurement"
 	"agro-supply-erp/internal/product"
 	"agro-supply-erp/internal/supplier"
-	"agro-supply-erp/internal/procurement"
 	"agro-supply-erp/migrations"
 )
 
@@ -70,29 +71,76 @@ func main() {
 
 	// Register Business Modules
 	if db != nil {
-		// Product Module
+		// Auth Module
+		authRepo := auth.NewRepository(db)
+		authService := auth.NewService(authRepo, cfg.JWTSecret)
+		authHandler := auth.NewHandler(authService)
+
+		authMw := middleware.Authenticate(authService)
+		requireAdmin := middleware.RequireRole(auth.RoleAdmin)
+		requirePurchasing := middleware.RequireRole(auth.RolePurchasing)
+		requireManager := middleware.RequireRole(auth.RoleManager)
+		requireWarehouse := middleware.RequireRole(auth.RoleWarehouse)
+
+		// 4.1 Auth Routes
+		mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+		mux.HandleFunc("GET /api/v1/auth/me", middleware.Wrap(authHandler.GetMe, authMw))
+		mux.HandleFunc("POST /api/v1/auth/register", middleware.Wrap(authHandler.Register, authMw, requireAdmin))
+		mux.HandleFunc("GET /api/v1/users", middleware.Wrap(authHandler.ListUsers, authMw, requireAdmin))
+		mux.HandleFunc("PUT /api/v1/users/{id}/status", middleware.Wrap(authHandler.UpdateUserStatus, authMw, requireAdmin))
+
+		// 4.2 Product Module
 		productRepo := product.NewRepository(db)
 		productService := product.NewService(productRepo)
 		productHandler := product.NewHandler(productService)
-		productHandler.RegisterRoutes(mux)
 
-		// Supplier Module
+		mux.HandleFunc("GET /api/v1/products", middleware.Wrap(productHandler.List, authMw))
+		mux.HandleFunc("GET /api/v1/products/{id}", middleware.Wrap(productHandler.GetByID, authMw))
+		mux.HandleFunc("POST /api/v1/products", middleware.Wrap(productHandler.Create, authMw, requirePurchasing))
+		mux.HandleFunc("PUT /api/v1/products/{id}", middleware.Wrap(productHandler.Update, authMw, requirePurchasing))
+		mux.HandleFunc("DELETE /api/v1/products/{id}", middleware.Wrap(productHandler.Delete, authMw, requirePurchasing))
+
+		// 4.3 Supplier Module
 		supplierRepo := supplier.NewRepository(db)
 		supplierService := supplier.NewService(supplierRepo)
 		supplierHandler := supplier.NewHandler(supplierService)
-		supplierHandler.RegisterRoutes(mux)
 
-		// Procurement Module (PR & PO)
+		mux.HandleFunc("GET /api/v1/suppliers", middleware.Wrap(supplierHandler.List, authMw))
+		mux.HandleFunc("GET /api/v1/suppliers/{id}", middleware.Wrap(supplierHandler.GetByID, authMw))
+		mux.HandleFunc("POST /api/v1/suppliers", middleware.Wrap(supplierHandler.Create, authMw, requirePurchasing))
+		mux.HandleFunc("PUT /api/v1/suppliers/{id}", middleware.Wrap(supplierHandler.Update, authMw, requirePurchasing))
+		mux.HandleFunc("DELETE /api/v1/suppliers/{id}", middleware.Wrap(supplierHandler.Delete, authMw, requirePurchasing))
+
+		// 4.4 Procurement Module (PR & PO)
 		procurementRepo := procurement.NewRepository(db)
 		procurementService := procurement.NewService(procurementRepo, productRepo, supplierRepo)
 		procurementHandler := procurement.NewHandler(procurementService)
-		procurementHandler.RegisterRoutes(mux)
 
-		// Inventory Module (Goods Receipt & Stock Ledger)
+		// Purchase Requests
+		mux.HandleFunc("GET /api/v1/purchase-requests", middleware.Wrap(procurementHandler.ListPR, authMw))
+		mux.HandleFunc("GET /api/v1/purchase-requests/{id}", middleware.Wrap(procurementHandler.GetPRByID, authMw))
+		mux.HandleFunc("POST /api/v1/purchase-requests", middleware.Wrap(procurementHandler.CreatePR, authMw, requirePurchasing))
+		mux.HandleFunc("POST /api/v1/purchase-requests/{id}/submit", middleware.Wrap(procurementHandler.SubmitPR, authMw, requirePurchasing))
+		mux.HandleFunc("POST /api/v1/purchase-requests/{id}/approve", middleware.Wrap(procurementHandler.ApprovePR, authMw, requireManager))
+		mux.HandleFunc("POST /api/v1/purchase-requests/{id}/reject", middleware.Wrap(procurementHandler.RejectPR, authMw, requireManager))
+
+		// Purchase Orders
+		mux.HandleFunc("GET /api/v1/purchase-orders", middleware.Wrap(procurementHandler.ListPO, authMw))
+		mux.HandleFunc("GET /api/v1/purchase-orders/{id}", middleware.Wrap(procurementHandler.GetPOByID, authMw))
+		mux.HandleFunc("POST /api/v1/purchase-orders", middleware.Wrap(procurementHandler.CreatePO, authMw, requirePurchasing))
+		mux.HandleFunc("POST /api/v1/purchase-orders/{id}/approve", middleware.Wrap(procurementHandler.ApprovePO, authMw, requireManager))
+		mux.HandleFunc("POST /api/v1/purchase-orders/{id}/cancel", middleware.Wrap(procurementHandler.CancelPO, authMw, requireManager))
+
+		// 4.5 Inventory Module (Goods Receipt & Stock Ledger)
 		inventoryRepo := inventory.NewRepository(db)
 		inventoryService := inventory.NewService(inventoryRepo, procurementRepo)
 		inventoryHandler := inventory.NewHandler(inventoryService)
-		inventoryHandler.RegisterRoutes(mux)
+
+		mux.HandleFunc("GET /api/v1/inventory/stock", middleware.Wrap(inventoryHandler.GetStockSummary, authMw))
+		mux.HandleFunc("GET /api/v1/inventory/ledger", middleware.Wrap(inventoryHandler.ListTransactions, authMw))
+		mux.HandleFunc("GET /api/v1/goods-receipts", middleware.Wrap(inventoryHandler.ListGoodsReceipts, authMw))
+		mux.HandleFunc("GET /api/v1/goods-receipts/{id}", middleware.Wrap(inventoryHandler.GetGoodsReceiptByID, authMw))
+		mux.HandleFunc("POST /api/v1/goods-receipts", middleware.Wrap(inventoryHandler.CreateGoodsReceipt, authMw, requireWarehouse))
 	}
 
 	// Middleware chain: Recovery -> CORS -> Logger -> Mux

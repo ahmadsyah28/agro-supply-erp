@@ -1,0 +1,21 @@
+meta {
+  name: Get Profile
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/auth/me
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{jwtToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq success
+  res.body.data.username: isDefined
+}
