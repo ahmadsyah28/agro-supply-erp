@@ -139,7 +139,9 @@ export interface AuthResponse {
   user: User;
 }
 
-const API_BASE = '/api/v1';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL 
+  ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')}/api/v1` 
+  : '/api/v1';
 const TOKEN_KEY = 'agro_erp_token';
 const USER_KEY = 'agro_erp_user';
 

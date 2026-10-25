@@ -25,7 +25,11 @@ func Load() (*Config, error) {
 
 	httpAddr := os.Getenv("HTTP_ADDR")
 	if httpAddr == "" {
-		httpAddr = ":8080"
+		if port := os.Getenv("PORT"); port != "" {
+			httpAddr = ":" + port
+		} else {
+			httpAddr = ":8080"
+		}
 	}
 
 	databaseURL := os.Getenv("DATABASE_URL")

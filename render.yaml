@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: agro-supply-erp-api
+    runtime: go
+    plan: free
+    region: singapore
+    buildCommand: go build -o api ./cmd/api
+    startCommand: ./api
+    healthCheckPath: /health/live
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
