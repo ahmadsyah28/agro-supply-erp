@@ -1,0 +1,15 @@
+meta {
+  name: Get Inventory Ledger
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/ledger
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}

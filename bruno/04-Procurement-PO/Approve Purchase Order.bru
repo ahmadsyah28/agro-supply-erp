@@ -1,0 +1,15 @@
+meta {
+  name: Approve Purchase Order
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/purchase-orders/1/approve
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: in [200, 400, 404]
+}

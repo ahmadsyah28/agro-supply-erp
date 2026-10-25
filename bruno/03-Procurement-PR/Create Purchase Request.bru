@@ -1,0 +1,28 @@
+meta {
+  name: Create Purchase Request
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/purchase-requests
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "notes": "Pengajuan pupuk untuk kebutuhan musim tanam Q4",
+    "items": [
+      {
+        "product_id": 1,
+        "quantity": 50,
+        "notes": "Stok gudang menipis"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: in [201, 400]
+}

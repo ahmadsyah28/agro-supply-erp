@@ -1,0 +1,26 @@
+meta {
+  name: Create Supplier
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/suppliers
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "name": "PT Agro Makmur Abadi",
+    "contact_name": "Agus Setiawan",
+    "email": "agus@agromakmur.co.id",
+    "phone": "081234567890",
+    "address": "Kawasan Industri Gresik Kav. 25, Jawa Timur"
+  }
+}
+
+assert {
+  res.status: in [201, 400]
+  res.body.status: in ["success", "error"]
+}

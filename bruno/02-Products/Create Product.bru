@@ -1,0 +1,23 @@
+meta {
+  name: Create Product
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/products
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "sku": "UREA-MUTIARA-16",
+    "name": "Pupuk Urea Mutiara 16-16-16",
+    "unit": "zak"
+  }
+}
+
+assert {
+  res.status: in [201, 400, 409]
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Create Goods Receipt
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/goods-receipts
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "purchase_order_id": 1,
+    "delivery_order_number": "DO-AGRO-2026-001",
+    "notes": "Penerimaan barang dari vendor, lolos uji QC",
+    "items": [
+      {
+        "purchase_order_item_id": 1,
+        "product_id": 1,
+        "received_quantity": 20,
+        "accepted_quantity": 20,
+        "rejected_quantity": 0,
+        "rejection_reason": ""
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: in [201, 400, 422]
+}

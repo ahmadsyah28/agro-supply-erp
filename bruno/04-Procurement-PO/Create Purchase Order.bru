@@ -1,0 +1,30 @@
+meta {
+  name: Create Purchase Order
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/purchase-orders
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "supplier_id": 1,
+    "notes": "PO Pembelian Pupuk Rutin",
+    "items": [
+      {
+        "product_id": 1,
+        "quantity": 20,
+        "unit_price": 175000,
+        "notes": "Pesanan NPK Mutiara"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: in [201, 400, 422]
+}

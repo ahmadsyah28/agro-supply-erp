@@ -2,427 +2,498 @@
 
 > Dokumen arsitektur teknis untuk MVP ERP PT AgroSupply.
 >
-> Status: Initial design  
-> Fokus saat ini: Backend Go + Neon PostgreSQL  
-> Frontend: Dikembangkan setelah API inti siap
+> Status: **MVP Phase 1–6 Selesai & Operasional**  
+> Backend: Go (Modular Monolith) + Neon PostgreSQL (`pgxpool`)  
+> Frontend: Next.js 14 (App Router) + TypeScript + Custom Design System ([DESIGN.md](DESIGN.md))  
+> Pengujian: End-to-End Workflow Test (`tests/`) & Bruno API Collection (`bruno/`)
 
 ## 1. Tujuan Sistem
 
 PT AgroSupply adalah distributor bahan baku, misalnya batok kelapa, yang membeli barang dari supplier dan memasoknya kepada pelanggan.
 
-MVP ini berfokus pada proses procurement dan inventory agar perusahaan dapat:
-- Mengelola data produk dan supplier.
-- Mencatat kebutuhan pengadaan melalui Purchase Request (PR).
-- Membuat dan menyetujui Purchase Order (PO).
-- Mencatat penerimaan barang, termasuk penerimaan parsial.
-- Melacak pergerakan dan saldo stok.
-- Menjaga riwayat transaksi dan perubahan penting.
+MVP ini berfokus pada proses procurement dan inventory hulu-ke-hilir agar perusahaan dapat:
+- Mengelola data master produk dan rekanan pemasok (supplier).
+- Mencatat kebutuhan pengadaan melalui Purchase Request (PR) dengan workflow pengajuan & persetujuan.
+- Menerbitkan dan menyetujui Purchase Order (PO) ke supplier aktif dengan proteksi business rules.
+- Mencatat penerimaan fisik barang (Goods Receipt), termasuk inspeksi QC (diterima vs ditolak) dan penerimaan parsial (multi-truk).
+- Melacak pergerakan dan saldo stok secara audit-proof melalui Inventory Ledger (buku besar mutasi stok).
+- Mengoperasikan sistem melalui antarmuka web modern (Next.js) yang terhubung langsung ke REST API.
 
-Fitur sales lengkap, akuntansi, pembayaran, multi-level approval kompleks, dan integrasi eksternal ditunda sampai kebutuhan inti berjalan.
+Fitur sales lengkap, akuntansi, pembayaran, multi-level approval kompleks, dan integrasi eksternal ditunda sampai kebutuhan inti berjalan stabil.
 
 ## 2. Prinsip Arsitektur
 
-1. **Modular Monolith** — satu aplikasi backend, dengan modul domain yang dipisahkan secara logis.
-2. **Business rules di backend** — aturan bisnis tidak hanya bergantung pada frontend.
-3. **Database sebagai sumber data transaksi** — data penting disimpan secara persisten di PostgreSQL.
-4. **Inventory ledger** — pergerakan stok dicatat sebagai transaksi, bukan hanya mengubah angka stok tanpa riwayat.
-5. **Explicit workflow** — PR, PO, dan Goods Receipt memiliki status dan transisi yang divalidasi.
-6. **Build incrementally** — implementasikan dan tes satu bagian sebelum menambah modul berikutnya.
-7. **Avoid premature complexity** — belum menggunakan microservices, message broker, atau CQRS untuk MVP.
+1. **Modular Monolith** — satu aplikasi backend Go dengan modul domain yang dipisahkan secara logis (`product`, `supplier`, `procurement`, `inventory`).
+2. **Business rules di backend** — aturan bisnis, validasi kuantitas, dan perubahan status dijaga ketat di backend, bukan hanya di frontend.
+3. **Database sebagai sumber data transaksi** — data penting disimpan secara persisten di Neon PostgreSQL dengan relasi foreign key dan constraint integritas.
+4. **Audit-Proof Inventory ledger** — pergerakan stok dicatat sebagai mutasi masuk (`IN`) dan keluar (`OUT`), bukan sekadar mengubah angka kolom `stock` secara sembarangan.
+5. **Explicit workflow** — PR, PO, dan Goods Receipt memiliki status transisi yang terdefinisi dan divalidasi (`DRAFT` $\rightarrow$ `SUBMITTED` $\rightarrow$ `APPROVED` $\rightarrow$ `PARTIALLY_RECEIVED` $\rightarrow$ `COMPLETED`).
+6. **Atomic Database Transactions** — pencatatan Goods Receipt dan penambahan mutasi ledger dilakukan dalam satu transaksi database (`pgx.Tx`) untuk mencegah desinkronisasi.
+7. **Production Stabilization & Security** — logging tersanitasi (tanpa membocorkan secret/password), panic recovery middleware untuk uptime, dan proteksi CORS untuk frontend.
+8. **Build incrementally** — implementasi bertahap dari Foundation, Master Data, Procurement, Inventory, Stabilization, hingga Frontend.
 
 ## 3. Technology Stack
 
-| Layer | Teknologi | Tanggung jawab |
+| Layer | Teknologi | Implementasi & Tanggung Jawab |
 |---|---|---|
-| Frontend (tahap berikutnya) | Next.js + TypeScript | UI dan interaksi pengguna |
-| Backend | Go | HTTP API, business rules, dan orchestration |
-| HTTP routing | `net/http` | Routing dan penanganan HTTP |
-| PostgreSQL driver | `github.com/jackc/pgx/v5/pgxpool` | Koneksi dan query database |
-| Database | Neon PostgreSQL | Penyimpanan data cloud |
-| Schema migration | `golang-migrate` atau tool sejenis | Perubahan schema yang terkontrol |
-| API testing | Postman atau Bruno | Pengujian endpoint |
-| Version control | Git | Riwayat perubahan kode |
-
-Gunakan versi dependency yang kompatibel dan simpan dependency melalui `go.mod` serta `go.sum`.
+| Frontend | Next.js 14 + React 18 + TypeScript | UI Dashboard, Master Data, Form Transaksi PR/PO/GR, & visualisasi Ledger |
+| Styling / Design System | Vanilla CSS (CSS Custom Properties) | Glassmorphism modern, responsif, tanpa dependensi framework CSS eksternal ([DESIGN.md](DESIGN.md)) |
+| Backend | Go (Golang) 1.22+ | HTTP REST API, business rules, validasi, dan transaksi atomik |
+| HTTP routing & Middleware | `net/http` standard library | Routing RESTful, CORS handler, Panic Recovery, dan Sanitized Logger |
+| PostgreSQL driver | `github.com/jackc/pgx/v5/pgxpool` | Connection pool berkinerja tinggi, concurrency-safe, dan transaksional |
+| Database | Neon PostgreSQL (Serverless) | Penyimpanan cloud PostgreSQL terkelola dengan koneksi terenkripsi (`sslmode=require`) |
+| Schema migration | Built-in Custom Migration Runner | Eksekusi otomatis migrasi SQL terurut (`migrations/*.sql`) saat server boot |
+| Testing & Verification | Go `testing` + Bruno Collection | Pengujian alur bisnis hulu-ke-hilir (`e2e_workflow_test.go`) & pengujian API manual |
+| Version control | Git & GitHub | Pelacakan versi kode dan deployment |
 
 ## 4. High-Level Architecture
 
 ```text
-User / API Client
-       |
-       v
-Next.js Frontend (later)
-       |
-       | HTTP / JSON
-       v
-Go REST API
-       |
-       +--> HTTP Handlers
-       |       |
-       |       v
-       +--> Application / Business Logic
-       |       |
-       |       v
-       +--> Data Access (SQL / pgx)
-               |
-               v
-        Neon PostgreSQL
+User / Web Browser
+       │
+       ▼
+Next.js Frontend (web: App Router, React 18, TypeScript)
+       │
+       │ HTTP / JSON (via web/lib/api.ts)
+       ▼
+Go REST API (cmd/api:8080)
+       │
+  [Middleware Pipeline: CORS, Logger Sanitizer, Panic Recovery]
+       │
+       ├──► HTTP Handlers (product, supplier, procurement, inventory, health)
+       │       │
+       │       ▼
+       ├──► Application / Business Services (Rules, Validations, Status Transitions)
+       │       │
+       │       ▼
+       └──► Repository / Data Access (pgxpool SQL Queries & Atomic Transactions)
+               │
+               ▼
+       Neon PostgreSQL (Cloud Database)
 ```
 
-Tanggung jawab setiap bagian:
+Tanggung jawab setiap layer:
+- **Frontend (Next.js)**: Menyajikan antarmuka visual interaktif, mengelola form input, menampilkan kartu KPI, filter status, dan memanggil REST API backend via `web/lib/api.ts`.
+- **Middleware**: Menangani cross-origin resource sharing (CORS), menangkap dan memulihkan unhandled panics, serta mencatat request log tanpa mengekspos kredensial sensitif.
+- **Handler**: Mem-parsing format JSON/query param, memvalidasi input dasar, memanggil service layer, dan mengembalikan respon JSON standar (`status: "success"` / `"error"`).
+- **Service / Business Logic**: Menerapkan aturan bisnis inti (misal: PO hanya boleh ke supplier aktif, GR tidak boleh melebihi sisa PO, pemisahan accepted vs rejected QC).
+- **Repository**: Melakukan operasi I/O ke database menggunakan prepared query dan transaksi `pgx.Tx`.
+- **Neon PostgreSQL**: Menjaga integritas data melalui tabel relasional, foreign keys, indeks, dan constraint `CHECK`.
 
-- **Handler**: membaca request, memvalidasi format input dasar, memanggil application logic, dan membentuk HTTP response.
-- **Application/business logic**: menerapkan aturan bisnis, mengatur workflow, dan menentukan operasi yang harus dilakukan.
-- **Data access**: menjalankan query SQL dan memetakan hasil database ke struktur Go.
-- **PostgreSQL**: menyimpan data, menjaga relasi, constraint, dan transaksi database.
-
-Jangan menaruh seluruh business rules di handler. Untuk MVP, layer tidak perlu dibuat terlalu banyak; pisahkan ketika tanggung jawabnya memang berbeda.
-
-## 5. Struktur Folder yang Disarankan
+## 5. Struktur Direktori Proyek Aktual
 
 ```text
 agro-supply-erp/
 ├── cmd/
 │   └── api/
-│       └── main.go
+│       └── main.go                 # Entrypoint server, migrasi, dan router wiring
 ├── internal/
-│   ├── config/
-│   │   └── config.go
-│   ├── database/
-│   │   └── postgres.go
-│   ├── product/
+│   ├── config/                     # Konfigurasi aplikasi dari environment variable (.env)
+│   ├── database/                   # Koneksi pgxpool dan built-in auto-migration runner
+│   ├── health/                     # Handler liveness (/health/live) dan readiness (/health/ready)
+│   ├── inventory/                  # Modul Goods Receipt, QC, dan Stock Ledger
 │   │   ├── handler.go
-│   │   ├── service.go
+│   │   ├── model.go
 │   │   ├── repository.go
-│   │   └── model.go
-│   ├── supplier/
+│   │   └── service.go
+│   ├── middleware/                 # CORS, Sanitized Logger, dan Panic Recovery
+│   ├── procurement/                # Modul Purchase Request & Purchase Order
 │   │   ├── handler.go
-│   │   ├── service.go
+│   │   ├── model.go
 │   │   ├── repository.go
-│   │   └── model.go
-│   ├── procurement/
+│   │   └── service.go
+│   ├── product/                    # Modul Master Data Product
 │   │   ├── handler.go
-│   │   ├── service.go
+│   │   ├── model.go
 │   │   ├── repository.go
-│   │   └── model.go
-│   └── inventory/
+│   │   └── service.go
+│   ├── response/                   # Standarisasi JSON payload, error formatting, dan pagination
+│   └── supplier/                   # Modul Master Data Supplier
 │       ├── handler.go
-│       ├── service.go
+│       ├── model.go
 │       ├── repository.go
-│       └── model.go
-├── migrations/
+│       └── service.go
+├── migrations/                     # File migrasi SQL terurut
+│   ├── 000001_create_products_table.up.sql
+│   ├── 000002_create_suppliers_table.up.sql
+│   ├── 000003_create_procurement_tables.up.sql
+│   ├── 000004_create_inventory_tables.up.sql
+│   └── 000005_ensure_suppliers_columns.up.sql
 ├── tests/
+│   └── e2e_workflow_test.go        # Pengujian integrasi bisnis hulu-ke-hilir
+├── bruno/                          # Bruno API Testing Collection
+├── web/                            # Frontend Next.js 14
+│   ├── app/
+│   │   ├── globals.css             # Desain sistem & styling kustom
+│   │   ├── layout.tsx              # Root layout & font loader
+│   │   └── page.tsx                # Halaman utama aplikasi (tab navigasi & view)
+│   ├── lib/
+│   │   └── api.ts                  # Client fetch wrapper untuk REST API Go
+│   ├── package.json
+│   └── tsconfig.json
 ├── .env.example
 ├── .gitignore
+├── ARCHITECTURE.md
+├── DESIGN.md                       # Dokumentasi spesifikasi visual & design tokens
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
 
-Catatan:
-- Struktur di atas adalah target bertahap, bukan berarti semua file harus dibuat pada hari pertama.
-- `cmd/api/main.go` menjadi entry point.
-- `internal/` berisi kode aplikasi yang tidak dimaksudkan sebagai public package untuk aplikasi Go lain.
-- `migrations/` berisi perubahan schema database yang diberi nomor dan dijalankan secara terkontrol.
-- Hindari membuat package kosong sebelum ada implementasi yang membutuhkannya.
-
 ## 6. Modul dan Batas Tanggung Jawab
 
 ### 6.1 Product
-Mengelola master data produk, misalnya:
-- SKU / kode produk
-- Nama produk
-- Unit dasar, misalnya kg atau ton
-- Status aktif/nonaktif
+Mengelola master data bahan baku:
+- SKU unik produk (misal: `BATOK-001`).
+- Nama produk dan satuan unit (`kg`, `ton`, dll.).
+- Status aktif/nonaktif (`is_active`).
+- *Soft-deletion*: Produk dinonaktifkan alih-alih dihapus jika sudah memiliki referensi transaksi.
 
 ### 6.2 Supplier
-Mengelola data supplier:
-- Nama perusahaan
-- Kontak dan alamat
-- Status supplier
-- Informasi kapasitas, kualitas, lokasi, dan lead time jika diperlukan
-
-Supplier yang belum aktif tidak boleh dipakai untuk membuat PO sesuai business rule yang ditetapkan.
+Mengelola rekanan pemasok:
+- Nama perusahaan/badan usaha.
+- Nama kontak (PIC), nomor telepon, email, dan alamat fisik.
+- Status aktif supplier (`is_active`).
+- *Business Rule*: Hanya supplier yang berstatus aktif yang diizinkan untuk diterbitkan Purchase Order (PO).
 
 ### 6.3 Procurement
-Mengelola:
-- Purchase Request (PR)
-- Item PR
-- Approval PR
-- Purchase Order (PO)
-- Item PO
-- Status dan tindak lanjut kekurangan pengiriman
+Mengelola siklus pengadaan barang:
+- **Purchase Request (PR)**:
+  - Header & Item rincian kebutuhan kuantitas.
+  - Siklus status: `DRAFT` $\rightarrow$ `SUBMITTED` $\rightarrow$ `APPROVED` / `REJECTED`.
+- **Purchase Order (PO)**:
+  - Diterbitkan dari PR yang telah disetujui atau dibuat langsung ke supplier aktif.
+  - Menyimpan kuantitas pesanan, harga satuan, dan kalkulasi total biaya.
+  - Siklus status: `DRAFT` $\rightarrow$ `APPROVED` $\rightarrow$ `PARTIALLY_RECEIVED` $\rightarrow$ `COMPLETED` / `CANCELLED`.
+  - PO terkunci dari perubahan saat sudah berstatus `APPROVED`.
 
 ### 6.4 Inventory
-Mengelola:
-- Goods Receipt
-- Pemeriksaan kuantitas dan kualitas
-- Penerimaan parsial
-- Stock ledger / inventory transactions
-- Saldo stok per produk dan gudang (jika gudang sudah dimodelkan)
+Mengelola penerimaan fisik dan saldo stok:
+- **Goods Receipt (GR)**:
+  - Mencatat nomor surat jalan supplier (`delivery_order_number`), tanggal datang, dan catatan penerimaan.
+  - Rincian item penerimaan fisik: `received_quantity`.
+- **Quality Control (QC)**:
+  - Memisahkan barang menjadi `accepted_quantity` (layak pakai) dan `rejected_quantity` (rusak/kadar air tinggi) beserta alasan penolakan (`rejection_reason`).
+- **Penerimaan Parsial (Multi-Truk)**:
+  - Akumulasi kuantitas yang diterima terhadap kuantitas PO terbuka.
+  - Transisi otomatis status PO menjadi `PARTIALLY_RECEIVED` jika masih ada sisa, atau `COMPLETED` jika pesanan sudah terpenuhi penuh.
+- **Stock Ledger (Buku Besar Mutasi)**:
+  - Hanya barang yang lolos QC (`accepted_quantity > 0`) yang dicatat ke buku besar mutasi bertipe `IN`.
+  - Saldo stok dihitung secara dinamis dari akumulasi transaksi (`SUM(quantity)` mutasi masuk dikurangi keluar).
 
-### 6.5 Auth (tahap berikutnya)
-Mengelola autentikasi, identitas pengguna, dan otorisasi. Jangan menganggap menyembunyikan tombol di frontend sebagai kontrol akses yang cukup; backend harus memvalidasi izin.
+### 6.5 Stabilization & Response Formatter
+- Mengisolasi formatting JSON respon sukses dan respon error agar konsisten di seluruh endpoint.
+- Menyediakan metadata pagination (`page`, `limit`, `total_items`, `total_pages`).
+- Sanitasi log: Memfilter nilai sensitif seperti password dan database credentials sebelum ditulis ke stdout.
+- Panic Recovery: Menjaga server tetap hidup jika terjadi panic pada salah satu goroutine HTTP handler.
 
-## 7. Alur Bisnis Inti
+## 7. Alur Bisnis Inti (End-to-End Workflow)
 
 ```text
-Kebutuhan barang
-      |
-      v
-Purchase Request (PR)
-      |
-      v
-Review / Approval
-      |
-      v
-Pemilihan Supplier
-      |
-      v
-Purchase Order (PO)
-      |
-      v
-Supplier mengirim barang
-      |
-      v
-Goods Receipt + pemeriksaan kualitas
-      |
-      +--> Barang diterima --> catat inventory IN
-      |
-      +--> Barang ditolak --> catat hasil inspeksi dan tindak lanjut
-      |
-      v
-Rekonsiliasi kuantitas PO dan penerimaan
+Kebutuhan Bahan Baku
+        │
+        ▼
+Purchase Request (PR) [DRAFT]
+        │
+        ▼ submit
+Purchase Request [SUBMITTED]
+        │
+        ▼ approve
+Purchase Request [APPROVED]
+        │
+        ▼ create PO
+Purchase Order (PO) [DRAFT] ──► Validasi: Supplier Aktif & Harga Satuan Valid
+        │
+        ▼ approve
+Purchase Order [APPROVED] (Resmi dikirim ke Rekanan Pemasok)
+        │
+        ▼ Supplier Mengirim Truk / Pengiriman Fisik
+Goods Receipt (Penerimaan Barang)
+        │
+        ├──► Quality Control (QC Inspection)
+        │       ├── Diterima (Accepted)  ──► Catat Mutasi IN ke Inventory Ledger
+        │       └── Ditolak (Rejected)   ──► Dicatat terpisah beserta alasan penolakan
+        │
+        ▼ Rekonsiliasi Kuantitas Terbuka PO
+Total Diterima < Total PO?
+        ├── YA  ──► PO otomatis berstatus [PARTIALLY_RECEIVED] (Truk berikutnya ditunggu)
+        └── TDK ──► PO otomatis berstatus [COMPLETED] (Pesanan Selesai)
 ```
 
-Contoh penerimaan parsial:
-- PO: 7.000 kg
-- Barang diterima secara fisik: 6.000 kg
-- Kekurangan: 1.000 kg
-- PO tetap menyimpan kuantitas awal 7.000 kg.
-- Goods Receipt mencatat jumlah aktual 6.000 kg.
-- PO dapat berstatus `partially_received` selama masih ada kuantitas terbuka.
-- Stok hanya bertambah berdasarkan jumlah yang diterima dan dinyatakan layak digunakan.
-- Kekurangan ditindaklanjuti berdasarkan kebijakan perusahaan.
+## 8. Skema Database & Migrasi SQL
 
-## 8. Rancangan Data Awal
+Skema dikelola oleh sistem migrasi bawaan (`migrations/*.up.sql`):
 
-Schema ini adalah gambaran awal. Detail constraint dan tipe data akan ditentukan saat membuat migration.
+### Tabel & Relasi Utama
 
-### Master data
-- `products`
-- `suppliers`
-- `warehouses` (dapat ditambahkan saat multi-gudang dibutuhkan)
-- `users` dan `roles` (ketika autentikasi dan otorisasi mulai dibuat)
+```text
+┌─────────────────┐       ┌────────────────────────┐
+│    products     │       │       suppliers        │
+├─────────────────┤       ├────────────────────────┤
+│ id (PK)         │       │ id (PK)                │
+│ sku (UNIQUE)    │       │ name, contact, phone   │
+│ name, unit      │       │ email, address         │
+│ is_active       │       │ is_active              │
+└────────┬────────┘       └───────────┬────────────┘
+         │                            │
+         │         ┌──────────────────┴──────────────────┐
+         │         │                                     │
+         ▼         ▼                                     ▼
+┌────────────────────────┐                    ┌────────────────────────┐
+│   purchase_requests    │                    │    purchase_orders     │
+├────────────────────────┤                    ├────────────────────────┤
+│ id (PK)                │◄───────────────────┤ id (PK)                │
+│ pr_number (UNIQUE)     │ purchase_request_id│ po_number (UNIQUE)     │
+│ status, notes          │                    │ supplier_id (FK)       │
+└────────┬───────────────┘                    │ status, notes          │
+         │                                    └───────────┬────────────┘
+         ▼                                                │
+┌────────────────────────┐                                │
+│ purchase_request_items │                                ▼
+├────────────────────────┤                    ┌────────────────────────┐
+│ id (PK)                │                    │  purchase_order_items  │
+│ purchase_request_id(FK)│                    ├────────────────────────┤
+│ product_id (FK)        │                    │ id (PK)                │
+│ quantity, notes        │                    │ purchase_order_id (FK) │
+└────────────────────────┘                    │ product_id (FK)        │
+                                              │ quantity, unit_price   │
+                                              └───────────┬────────────┘
+                                                          │
+         ┌────────────────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────┐       ┌────────────────────────┐
+│     goods_receipts     │       │  goods_receipt_items   │
+├────────────────────────┤       ├────────────────────────┤
+│ id (PK)                │◄──────┤ id (PK)                │
+│ gr_number (UNIQUE)     │       │ goods_receipt_id (FK)  │
+│ purchase_order_id (FK) │       │ po_item_id (FK)        │
+│ delivery_order_number  │       │ product_id (FK)        │
+│ received_date, notes   │       │ received_quantity      │
+└────────────────────────┘       │ accepted_quantity      │
+                                 │ rejected_quantity      │
+                                 │ rejection_reason       │
+                                 └───────────┬────────────┘
+                                             │
+                                             ▼
+                                 ┌────────────────────────┐
+                                 │ inventory_transactions │
+                                 ├────────────────────────┤
+                                 │ id (PK)                │
+                                 │ product_id (FK)        │
+                                 │ transaction_type (IN)  │
+                                 │ quantity               │
+                                 │ reference_type (GR)    │
+                                 │ reference_id (FK GR)   │
+                                 │ notes, created_at      │
+                                 └────────────────────────┘
+```
 
-### Procurement
-- `purchase_requests`
-- `purchase_request_items`
-- `purchase_orders`
-- `purchase_order_items`
-- `goods_receipts`
-- `goods_receipt_items`
+### Daftar Migrasi yang Telah Dijalankan:
+1. `000001_create_products_table.up.sql`: Pembuatan tabel `products` dengan index SKU unik.
+2. `000002_create_suppliers_table.up.sql`: Pembuatan tabel `suppliers` dan status aktif.
+3. `000003_create_procurement_tables.up.sql`: Pembuatan tabel `purchase_requests`, `purchase_request_items`, `purchase_orders`, dan `purchase_order_items`.
+4. `000004_create_inventory_tables.up.sql`: Pembuatan tabel `goods_receipts`, `goods_receipt_items`, dan `inventory_transactions`.
+5. `000005_ensure_suppliers_columns.up.sql`: Verifikasi idempotent kolom dan constraint integritas data supplier.
 
-### Inventory
-- `inventory_transactions`
-- Opsional: tabel saldo stok yang dioptimalkan setelah kebutuhan query diketahui
+## 9. Inventory Ledger (Buku Besar Stok)
 
-Relasi utama:
-- Satu PR memiliki banyak PR items.
-- Satu PO memiliki banyak PO items.
-- Satu PO dapat memiliki beberapa Goods Receipt.
-- Satu Goods Receipt memiliki banyak Goods Receipt items.
-- Inventory transaction harus memiliki referensi yang dapat ditelusuri ke transaksi sumbernya.
+Sistem mengadopsi prinsip akuntansi buku besar (ledger):
+- Kolom saldo statis pada tabel produk dihindari karena rentan mengalami kondisi balapan (race condition) dan ketidaksesuaian data.
+- Setiap penerimaan barang fisik (`accepted_quantity`) menambahkan baris mutasi `IN` pada tabel `inventory_transactions`.
+- Pengeluaran bahan baku di masa mendatang (penjualan/pemakaian) akan menambahkan baris mutasi `OUT`.
+- Saldo stok dihitung melalui agregasi SQL:
+  ```sql
+  SELECT product_id,
+         COALESCE(SUM(CASE WHEN transaction_type = 'IN' THEN quantity ELSE 0 END), 0) AS total_in,
+         COALESCE(SUM(CASE WHEN transaction_type = 'OUT' THEN quantity ELSE 0 END), 0) AS total_out,
+         COALESCE(SUM(CASE WHEN transaction_type = 'IN' THEN quantity ELSE -quantity END), 0) AS current_stock
+  FROM inventory_transactions
+  GROUP BY product_id;
+  ```
 
-### Aturan data penting
-- Gunakan primary key yang konsisten.
-- Gunakan foreign key untuk menjaga referensi antarentitas.
-- Simpan kuantitas dengan tipe numerik yang sesuai, bukan floating-point biner.
-- Simpan harga sebagai `NUMERIC`/decimal, bukan `float`.
-- Simpan timestamp dengan tipe yang sesuai dan gunakan UTC pada backend bila memungkinkan.
-- Tambahkan `created_at` dan `updated_at` pada tabel yang memerlukannya.
-- Jangan menyimpan password plaintext.
-- Hindari menghapus transaksi bisnis yang sudah diposting; gunakan pembatalan atau reversal yang tercatat sesuai kebutuhan.
+## 10. Daftar Endpoint REST API Lengkap
 
-## 9. Inventory Ledger
+Prefix API: `/api/v1`
 
-Jangan hanya menyimpan `products.stock` sebagai satu-satunya sumber kebenaran.
+### 10.1 Health Checks
+| Method | Endpoint | Deskripsi |
+|---|---|---|
+| `GET` | `/health/live` | Liveness probe (memverifikasi server Go aktif) |
+| `GET` | `/health/ready` | Readiness probe (memverifikasi kesiapan koneksi database Neon) |
 
-Setiap perubahan stok harus menghasilkan transaksi, misalnya:
+### 10.2 Products
+| Method | Endpoint | Deskripsi |
+|---|---|---|
+| `POST` | `/api/v1/products` | Tambah produk baru (SKU unik, nama, satuan) |
+| `GET` | `/api/v1/products` | Ambil daftar produk (mendukung pagination) |
+| `GET` | `/api/v1/products/{id}` | Detail produk berdasarkan ID |
+| `PUT` | `/api/v1/products/{id}` | Perbarui nama, unit, atau status produk |
+| `DELETE` | `/api/v1/products/{id}` | Nonaktifkan produk (*soft-delete*) |
 
-| Referensi | Jenis | Kuantitas |
-|---|---|---:|
-| GR-001 | IN | +6.000 kg |
-| DO-001 | OUT | -1.000 kg |
+### 10.3 Suppliers
+| Method | Endpoint | Deskripsi |
+|---|---|---|
+| `POST` | `/api/v1/suppliers` | Tambah supplier baru |
+| `GET` | `/api/v1/suppliers` | Ambil daftar supplier |
+| `GET` | `/api/v1/suppliers?active=true` | Ambil daftar supplier yang berstatus aktif saja |
+| `GET` | `/api/v1/suppliers/{id}` | Detail supplier berdasarkan ID |
+| `PUT` | `/api/v1/suppliers/{id}` | Perbarui data kontak/status supplier |
+| `DELETE` | `/api/v1/suppliers/{id}` | Nonaktifkan supplier |
 
-Saldo stok secara konsep adalah jumlah seluruh transaksi masuk dan keluar untuk produk serta lokasi yang sama, dengan mempertimbangkan transaksi yang valid.
+### 10.4 Procurement — Purchase Request (PR)
+| Method | Endpoint | Deskripsi |
+|---|---|---|
+| `POST` | `/api/v1/purchase-requests` | Buat PR baru status `DRAFT` beserta rincian item |
+| `GET` | `/api/v1/purchase-requests` | Ambil daftar PR |
+| `GET` | `/api/v1/purchase-requests/{id}` | Detail PR dan item-itemnya |
+| `POST` | `/api/v1/purchase-requests/{id}/submit` | Ajukan PR (`DRAFT` $\rightarrow$ `SUBMITTED`) |
+| `POST` | `/api/v1/purchase-requests/{id}/approve` | Setujui PR (`SUBMITTED` $\rightarrow$ `APPROVED`) |
+| `POST` | `/api/v1/purchase-requests/{id}/reject` | Tolak PR (`SUBMITTED` $\rightarrow$ `REJECTED`) |
 
-Untuk mencegah inkonsistensi:
-- Catat Goods Receipt dan inventory transaction dalam satu transaksi database.
-- Gunakan constraint dan validasi untuk mencegah data tidak valid.
-- Jika kelak menyimpan saldo stok terhitung untuk performa, perbarui saldo dan ledger secara atomik.
-- Rancang idempotency atau proteksi duplikasi sebelum endpoint posting transaksi digunakan secara luas.
+### 10.5 Procurement — Purchase Order (PO)
+| Method | Endpoint | Deskripsi |
+|---|---|---|
+| `POST` | `/api/v1/purchase-orders` | Buat PO ke supplier aktif |
+| `GET` | `/api/v1/purchase-orders` | Ambil daftar PO |
+| `GET` | `/api/v1/purchase-orders/{id}` | Detail PO, supplier, dan rincian harga |
+| `POST` | `/api/v1/purchase-orders/{id}/approve` | Setujui PO untuk dikirim ke supplier (`APPROVED`) |
+| `POST` | `/api/v1/purchase-orders/{id}/cancel` | Batalkan PO (`CANCELLED`) |
 
-## 10. API Awal
+### 10.6 Inventory & Goods Receipt
+| Method | Endpoint | Deskripsi |
+|---|---|---|
+| `POST` | `/api/v1/goods-receipts` | Catat penerimaan fisik, QC, dan posting mutasi stok |
+| `GET` | `/api/v1/goods-receipts` | Ambil riwayat penerimaan barang |
+| `GET` | `/api/v1/goods-receipts/{id}` | Detail penerimaan barang dan hasil QC |
+| `GET` | `/api/v1/inventory/stock` | Saldo stok terkini setiap produk (`total_in`, `total_out`, `current_stock`) |
+| `GET` | `/api/v1/inventory/ledger` | Riwayat buku besar mutasi stok (opsional filter `?product_id=1`) |
 
-Gunakan prefix `/api/v1`.
+## 11. Format Respon & Standarisasi Error
 
-### Health
-- `GET /health/live`
-- `GET /health/ready`
+Semua response menggunakan header `Content-Type: application/json; charset=utf-8`.
 
-### Products
-- `POST /api/v1/products`
-- `GET /api/v1/products`
-- `GET /api/v1/products/{id}`
-- `PUT /api/v1/products/{id}`
-- `DELETE /api/v1/products/{id}` atau nonaktifkan produk jika sudah direferensikan transaksi
+### Format Respon Berhasil
+```json
+{
+  "status": "success",
+  "data": { ... },
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total_items": 100,
+    "total_pages": 5
+  }
+}
+```
 
-### Suppliers
-- `POST /api/v1/suppliers`
-- `GET /api/v1/suppliers`
-- `GET /api/v1/suppliers/{id}`
-- `PUT /api/v1/suppliers/{id}`
+### Format Respon Gagal
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Supplier tidak aktif atau tidak ditemukan",
+    "details": null
+  }
+}
+```
 
-### Procurement dan inventory (tahap berikutnya)
-- `POST /api/v1/purchase-requests`
-- `POST /api/v1/purchase-requests/{id}/submit`
-- `POST /api/v1/purchase-requests/{id}/approve`
-- `POST /api/v1/purchase-orders`
-- `POST /api/v1/purchase-orders/{id}/approve`
-- `POST /api/v1/goods-receipts`
-- `GET /api/v1/inventory`
-
-Endpoint di atas adalah rancangan awal, bukan berarti semua harus dibuat sekaligus.
-
-## 11. Aturan HTTP API
-
-- Gunakan JSON untuk request dan response.
-- Gunakan HTTP status yang sesuai: `200`, `201`, `204`, `400`, `401`, `403`, `404`, `409`, dan `500`.
-- Validasi input di backend.
-- Jangan mengirim detail internal database atau secret dalam error response.
-- Gunakan format error response yang konsisten.
-- Gunakan pagination untuk list yang dapat bertambah besar.
-- Pisahkan error validasi, konflik business rule, dan kegagalan internal.
-- Jangan menganggap request sukses sebelum transaksi database berhasil di-commit.
+Kode status HTTP yang digunakan:
+- `200 OK`: Pengambilan data atau pembaruan status berhasil.
+- `201 Created`: Pembuatan entitas berhasil (`products`, `suppliers`, `PR`, `PO`, `GR`).
+- `400 Bad Request`: Format JSON tidak valid atau validasi input gagal.
+- `404 Not Found`: Entitas tidak ditemukan.
+- `409 Conflict`: Pelanggaran constraint (misal: duplikasi SKU unik).
+- `422 Unprocessable Entity`: Pelanggaran aturan bisnis (misal: PO ke supplier nonaktif, kuantitas penerimaan melebihi sisa PO).
+- `500 Internal Server Error`: Kegagalan internal database atau server (detail internal tidak dibocorkan).
 
 ## 12. Konfigurasi dan Keamanan
 
-Konfigurasi runtime diambil dari environment variables, misalnya:
-- `DATABASE_URL`
-- `APP_ENV`
-- `HTTP_ADDR`
-
-Ketentuan:
-- Simpan secret di environment, bukan di source code.
-- Jangan commit file `.env`; commit `.env.example` tanpa secret asli.
-- Tambahkan `.env` ke `.gitignore`.
-- Gunakan koneksi TLS sesuai konfigurasi Neon.
-- Gunakan database role dengan hak minimum yang dibutuhkan.
-- Jangan log connection string, password, token, atau data sensitif.
-- Untuk deployment production, gunakan pengelolaan secret yang sesuai platform.
-
-Contoh `.env.example`:
-
-```dotenv
-APP_ENV=development
-HTTP_ADDR=:8080
-DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
-```
-
-Ganti placeholder dengan nilai yang sesuai secara lokal. Jangan menggunakan contoh tersebut sebagai kredensial nyata.
+1. **Environment Variables**:
+   - `DATABASE_URL`: String koneksi Neon PostgreSQL dengan parameter `sslmode=require`.
+   - `HTTP_ADDR`: Port listen web server (default `:8080`).
+   - `APP_ENV`: Environment running (`development` / `production`).
+2. **Kerahasiaan Kredensial**:
+   - File `.env` masuk ke `.gitignore`. Template tersedia di `.env.example`.
+   - Middleware logging melakukan *redaction* terhadap connection string dan token sensitif.
+3. **CORS (Cross-Origin Resource Sharing)**:
+   - Dikonfigurasi untuk mendukung komunikasi aman antara antarmuka Next.js dan backend Go.
 
 ## 13. Testing Strategy
 
-Tahap awal:
-1. Unit test untuk validasi dan business rules.
-2. Integration test untuk query PostgreSQL.
-3. API test untuk status code dan response.
-4. Workflow test untuk PR → PO → Goods Receipt.
-5. Negative test untuk kondisi seperti supplier nonaktif, PO tidak disetujui, penerimaan melebihi kuantitas terbuka, dan penerimaan duplikat.
-
-Contoh skenario penerimaan:
-- PO 7.000 kg, menerima 6.000 kg: PO menjadi `partially_received`.
-- Sisa 1.000 kg diterima kemudian: kuantitas penerimaan terakumulasi dengan benar.
-- Kuantitas penerimaan tidak boleh otomatis mengubah kuantitas awal PO.
-- Barang yang ditolak tidak otomatis menambah stok yang layak digunakan.
+1. **Unit Testing & Business Rules**: Menguji validasi format data, perhitungan kuantitas, dan error handling.
+2. **End-to-End Workflow Test (`tests/e2e_workflow_test.go`)**:
+   - Simulasi alur lengkap: Pembuatan produk $\rightarrow$ pembuatan supplier $\rightarrow$ pengajuan PR $\rightarrow$ approval PR $\rightarrow$ pembuatan PO $\rightarrow$ approval PO $\rightarrow$ penerimaan parsial Truk 1 $\rightarrow$ penerimaan penyelesaian Truk 2 $\rightarrow$ validasi saldo akhir buku besar stok.
+3. **API Collection (`bruno/`)**:
+   - Koleksi request siap pakai untuk eksplorasi dan verifikasi manual setiap endpoint REST API.
 
 ## 14. Roadmap Implementasi
 
-### Phase 1 — Foundation
-- [x] Buat project Neon PostgreSQL.
-- [x] Buat module Go dan struktur awal.
-- [x] Koneksi Go ke Neon melalui `pgxpool`.
-- [x] Implementasikan health endpoints.
-- [x] Siapkan migration tooling dan konfigurasi environment.
+### Phase 1 — Foundation (Selesai)
+- [x] Project Neon PostgreSQL terkonfigurasi.
+- [x] Inisialisasi Go module dan struktur modular monolith.
+- [x] Koneksi pool `pgxpool` dengan SSL support.
+- [x] Endpoint liveness (`/health/live`) dan readiness (`/health/ready`).
+- [x] Custom automated migration runner terintegrasi.
 
+### Phase 2 — Master Data (Selesai)
+- [x] Migrasi tabel `products` dan `suppliers`.
+- [x] CRUD dan validasi SKU unik untuk produk.
+- [x] CRUD dan validasi nomor kontak supplier.
+- [x] Fitur soft-delete (`is_active`).
 
-### Phase 2 — Master Data
-- [x] Migration `products`.
-- [x] CRUD products.
-- [x] Migration `suppliers`.
-- [x] CRUD suppliers.
-- [x] Validasi dan API tests.
+### Phase 3 — Procurement (Selesai)
+- [x] Migrasi tabel `purchase_requests` dan `purchase_orders`.
+- [x] Workflow PR: `DRAFT` $\rightarrow$ `SUBMITTED` $\rightarrow$ `APPROVED` / `REJECTED`.
+- [x] Workflow PO: Pembuatan PO dengan validasi supplier aktif.
+- [x] PO Approval & Cancellation.
 
-### Phase 3 — Procurement
-- [x] PR dan PR items.
-- [x] Workflow submit/approve sederhana.
-- [x] PO dan PO items.
-- [x] Validasi status dan supplier aktif.
+### Phase 4 — Inventory & Quality Control (Selesai)
+- [x] Migrasi tabel `goods_receipts` dan `inventory_transactions`.
+- [x] Pencatatan Goods Receipt dengan nomor surat jalan rekanan.
+- [x] Pemisahan inspeksi QC (`accepted_quantity` vs `rejected_quantity`).
+- [x] Penerimaan bertahap / parsial (rekonsiliasi otomatis status PO).
+- [x] Buku besar stok (*Stock Ledger*) transaksi atomik `IN`.
 
-### Phase 4 — Inventory
-- [x] Goods Receipt dan item.
-- [x] Penerimaan parsial.
-- [x] Inventory ledger.
-- [x] Transaksi database yang atomik.
-- [x] Pengujian penerimaan dan stok.
+### Phase 5 — Stabilization (Selesai)
+- [x] Standarisasi format envelope JSON respon dan pagination metadata.
+- [x] Panic recovery middleware untuk mencegah web service crash.
+- [x] Sanitasi log untuk melindungi data sensitif.
+- [x] End-to-end integration test (`tests/e2e_workflow_test.go`).
+- [x] Dokumentasi lengkap operasional pada `README.md`.
 
-### Phase 5 — Stabilization
-- [x] Error response konsisten.
-- [x] Pagination dan filtering dasar.
-- [x] Logging tanpa secret.
-- [x] Testing workflow end-to-end.
-- [x] README untuk menjalankan project.
-
-### Phase 6 — Frontend
-- [x] Setup Next.js + TypeScript.
-- [x] Halaman master products dan suppliers.
-- [x] Halaman PR dan PO.
-- [x] Halaman penerimaan barang dan stok.
-- [x] Integrasi frontend dengan API Go.
-
-## 15. Definition of Done
-
-Sebuah fitur dianggap selesai jika:
-- Business rule yang relevan telah ditentukan.
-- Input divalidasi oleh backend.
-- Database operation berjalan dengan benar.
-- Error response sesuai dan tidak membocorkan detail internal.
-- Ada test untuk skenario normal dan skenario gagal.
-- Perubahan schema memiliki migration.
-- Kode dapat dijalankan dari instruksi README.
-
-## 16. Keputusan yang Sengaja Ditunda
-
-Untuk menjaga MVP tetap sederhana, hal-hal berikut belum menjadi bagian tahap pertama:
-- Microservices.
-- Message broker/event streaming.
-- CQRS.
-- Multi-level approval yang kompleks.
-- Accounting dan general ledger lengkap.
-- Integrasi pembayaran.
-- Multi-tenant architecture.
-- Optimasi performa sebelum ada pengukuran.
-
-Keputusan ini dapat ditinjau kembali jika kebutuhan bisnis dan skala sistem memang membutuhkannya.
+### Phase 6 — Frontend Web Application (Selesai)
+- [x] Setup Next.js 14 (App Router) + TypeScript.
+- [x] Implementasi Custom Design System Glassmorphism ([DESIGN.md](DESIGN.md)).
+- [x] Dashboard metrik operasional dan ringkasan stok cepat.
+- [x] Antarmuka Master Data: Manajemen Produk dan Supplier (tambah, edit, nonaktifkan).
+- [x] Antarmuka Procurement: Pembuatan dan persetujuan PR & PO.
+- [x] Antarmuka Inventory: Input Goods Receipt, pencatatan QC, dan visualisasi Stock Ledger.
+- [x] Client API wrapper terintegrasi dengan backend Go (`web/lib/api.ts`).
 
 ---
 
-## Next action
+## 15. Rencana Pengembangan Selanjutnya (Next Phases)
 
-Mulai dari **Phase 1 — Foundation**:
-1. Buat project Neon dan simpan `DATABASE_URL` secara aman.
-2. Pastikan Go dapat terhubung ke Neon.
-3. Pastikan `/health/live` dan `/health/ready` berfungsi.
-4. Tambahkan migration tooling.
-5. Buat tabel `products` sebagai schema bisnis pertama.
+Setelah MVP operasional hulu-ke-hilir selesai, pengembangan lanjutan akan difokuskan pada:
+
+### Phase 7 — Autentikasi & Role-Based Access Control (RBAC)
+- [ ] Registrasi & Login pengguna (JWT / HttpOnly Cookie).
+- [ ] Pemisahan peran akses:
+  - `Admin`: Akses penuh konfigurasi sistem dan user.
+  - `Purchasing`: Membuat PR, membuat PO, mengelola master supplier.
+  - `Manager / Approver`: Menyetujui atau menolak PR dan PO.
+  - `Warehouse / QC`: Mencatat Goods Receipt, inspeksi mutu barang, dan melihat stok.
+
+### Phase 8 — Outbound Logistics & Multi-Warehouse
+- [ ] Master data multi-gudang (`warehouses`) dan alokasi lokasi penyimpanan.
+- [ ] Delivery Order (DO) / Surat Jalan Pengiriman ke Pelanggan.
+- [ ] Pencatatan mutasi pengeluaran stok (`OUT`) pada Stock Ledger.
+- [ ] Reservasi stok untuk pesanan penjualan yang belum dikirim.
+
+### Phase 9 — Laporan & Export Data
+- [ ] Ekspor dokumen cetak PDF untuk Purchase Order (format surat resmi perusahaan).
+- [ ] Ekspor laporan mutasi buku besar stok dan penerimaan barang ke Excel / CSV.
+- [ ] Notifikasi batas minimum stok (*low-stock reorder warning*).
+

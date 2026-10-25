@@ -1,0 +1,15 @@
+meta {
+  name: Get Stock Summary
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/stock
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
